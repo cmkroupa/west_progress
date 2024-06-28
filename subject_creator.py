@@ -1,8 +1,9 @@
 from creds import collection
-from classes import *
 from typing import List
 
 from playwright.sync_api import sync_playwright
+
+done = ["Actuarial Science","American Sign Language","American Studies","Analytics and Decision Sciences","Anatomy and Cell Biology"]
 
 with sync_playwright() as playwright:
     browser = playwright.chromium.launch(headless=False)
@@ -13,7 +14,7 @@ with sync_playwright() as playwright:
 
     page_subjects = page.locator('tbody').locator('tr').all()
 
-    subjects: List[Subject] = {}
+    subjects = {}
 
     for page_subject in page_subjects:
         columns = page_subject.locator('td').all()
@@ -40,20 +41,30 @@ with sync_playwright() as playwright:
             else:
                 locations.append('Huron')
         
-        subjects[subjectName] = Subject("https://westerncalendar.uwo.ca/"+subjectHREF, breadth, locations)
+        subjects[subjectName] = {"href":"https://westerncalendar.uwo.ca/"+subjectHREF, "breadth": breadth,"campuses": locations}
+
     for subject in subjects:
+        print(subject)
+        if(subject in done):
+            print("skipped")
+            continue
+
+        subjects[subject]['courses'] = {}
         courses = []
         
-        page.goto(subjects[subject]._href) 
+        page.goto(subjects[subject]["href"]) 
         page_courses = page.locator('div[class=panel-body]').filter(has=page.locator('a').filter(has_text="More details")).all()
         
         for page_course in page_courses:
             detailsButton = page_course.locator('a').filter(has_text="More details").get_attribute('href')
             courses.append("https://westerncalendar.uwo.ca/"+detailsButton)
-                
-        
+            
+        #referencing courses  
         for course_page in courses:
             page.goto(course_page)
+
+            input()
+            continue
             body = page.locator('div#CourseInformationDiv')
 
             code = body.locator('h2').inner_text()
@@ -61,26 +72,14 @@ with sync_playwright() as playwright:
 
             sections = body.locator('div.col-xs-12').all()
             description = sections[0].locator('div').inner_text()
-            extra = sections[len(sections)-2].locator('div').inner_text()
-            anti_req = []
+            extra = sections[len(sections)-2].locator('div').inner_text().replace('Extra Information: ', "")
 
-            print(code)
-            print("ANTI-REQ")
-            while((anti_req_course := input("- ")) != ""):
-                anti_req.append(anti_req_course)
-            pre_req = []
-            print("PRE-REQ")
-            for i in range(0,int(input("How many sections: "))):
-                pre_req_section = []
-                weight = input('Weight: ')
-                print("Section "+i+": ")
-                while((pre_req_course := input("- ")) != ""):
-                    grade = input('Grade Needed: ')
-                    newCourse = Pre_Course(pre_req_course, grade)
-                    pre_req_section.append(newCourse)
-                pre_req.append(Pre_Req(weight, pre_req_section))
-
-            courseToAdd = Course(name,course_page, description, anti_req, pre_req, extra)
+            courseToAdd = {
+                "name": name,
+                "href":course_page,
+                "description":description,
+                "extra":extra
+            }
 
             icon = body.locator('img').all()[0].get_attribute('alt')
 
@@ -91,9 +90,32 @@ with sync_playwright() as playwright:
             else:
                 icon = "Huron"
 
-            if(code not in subjects):
-                subjects[code] = {}
+            if(code not in subjects[subject]['courses']):
+                subjects[subject]['courses'][code] = {}
             
-            subjects[code][icon] = courseToAdd
+            subjects[subject]['courses'][code][icon] = courseToAdd
+
+            anti_req = []
+            anti_s = body.locator('div.col-xs-12').filter(has_text="Antirequisite").locator('a').all()
+            if(len(anti_s) > 0):
+                for anti in anti_s:
+                    anti_req.append(anti.inner_text().replace(",",""))
+                subjects[subject]['courses'][code][icon]['anti_req'] = anti_req
+            
+            
+            pre_s = body.locator('div.col-xs-12').filter(has_text="Prerequisite").locator('a').all()
+            if(len(pre_s) > 0):
+                pre_dict = {}
+                pre_dict["section1"] = {}
+
+                pre_dict["section1"]["weight"] = 0.5
+                pre_dict["section1"]["courses"] = {}
+
+                for pre in pre_s:
+                    pre_dict["section1"]["courses"][pre.inner_text().replace(",", "")] = 50
+                
+                subjects[subject]['courses'][code][icon]['pre_req'] = pre_dict
+        
+        #collection.insert_one({subject: subjects[subject]})
 
 
